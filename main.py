@@ -37,7 +37,7 @@ def list_servers(region):
     try:
         with valve.source.master_server.MasterServerQuerier() as msq:
             for server in msq.find(region=region, appid='244850'):
-                yield server
+                yield server, region
     except Exception as e:
         logger.error(f"region {region}: {e}")
         yield []
@@ -45,7 +45,7 @@ def list_servers(region):
 def read_server(address):
     try:
         # https://github.com/Yepoleb/python-a2s
-        info = a2s.info(address)
+        info = a2s.info(address[0])
         info.address = address
         return [info]
     except Exception as e:
@@ -83,11 +83,14 @@ def ingest_servers(now):
         write_api = client.write_api()
         points = []
         for info in servers:
-            ip = info.address[0]
-            port = info.address[1]
+            ip = info.address[0][0]
+            port = info.address[0][1]
+            region = info.address[1]
+            server_name = info.server_name
+            #todo: ingest region and server_name to other db
             player_count = info.player_count
             if ip is None or port is None or player_count is None:
-                logger.warning(f"Skipping server with incomplete info: {info.server_name}, {ip}:{port}, {player_count}")
+                logger.warning(f"Skipping server with incomplete info: {server_name}, {ip}:{port}, {player_count}")
                 continue
 
             point = (

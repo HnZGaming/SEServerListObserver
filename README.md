@@ -3,9 +3,11 @@
 
 This project monitors the player population of all public Space Engineers community servers and periodically writes player counts to an InfluxDB database. It is designed to run via Docker Compose, supports scheduled polling via cron, and is ready for future expansion (e.g., Grafana integration for visualization).
 
+This tool allows you to observe the player count of each host, not limited to each host:port. This is important when you want to know the true population of a Nexus-enabled SE community as opposed to a single server instance.
+
 ## Features
 - Polls all public Space Engineers servers using the Steam master server API
-- Collects player counts and server info every run
+- Collects player counts per host:ip and also per host
 - Stores results in InfluxDB (configurable via environment variables)
 - Runs easily with Docker Compose (Python + InfluxDB)
 - Thread-safe, parallelized polling for fast data collection
@@ -30,7 +32,8 @@ This project monitors the player population of all public Space Engineers commun
    > **Note:** The default environment variables and Docker Compose configuration use credentials that are intended for local development only. **Do not expose your InfluxDB instance to the public internet or untrusted networks without changing these credentials and securing access.**
 3. Start the stack (for development mode):
    ```sh
-   MODE=dev docker-compose up --build
+   MODE=dev docker-compose up --build # bash
+   $env:MODE="dev"; docker compose up --build # powershell
    ```
    This will start the observer in development mode, running the polling script once per container start. For production (scheduled polling), set `MODE=prod` in your `.env` file or environment, or don't set `MODE` at all.
 4. The observer will poll all regions and ingest results into InfluxDB. In production mode, polling is scheduled automatically every 5 minutes via cron.
@@ -38,11 +41,34 @@ This project monitors the player population of all public Space Engineers commun
 ### InfluxDB
 InfluxDB is started automatically via Docker Compose. Credentials and setup are controlled by environment variables in `docker-compose.yml` and `.env`.
 
-
 ### Data Visualization
 You can visualize the collected data directly using the InfluxDB web interface, which is available at `http://localhost:8086` by default. InfluxDB provides built-in dashboards and data exploration tools.
 
 - See the official InfluxDB documentation for dashboard and visualization setup: [InfluxDB Dashboards Documentation](https://docs.influxdata.com/influxdb/latest/visualize-data/dashboards/)
+
+- Flux query to visualize the timeline of online players in all SE communities
+```
+from(bucket: "se-servers")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r["_measurement"] == "player_counts")
+  |> group(columns: ["ip", "_time"])
+  |> sum(column: "_value")
+  |> group(columns: ["ip"])
+  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)
+```
+
+- Flux query to create a table (note: not a graph) of the most populated SE communities
+```
+from(bucket: "se-servers")
+  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
+  |> filter(fn: (r) => r["_measurement"] == "player_counts")
+  |> group(columns: ["ip"])
+  |> aggregateWindow(every: v.windowPeriod, fn: sum, createEmpty: false)
+  |> last()
+  |> filter(fn: (r) => r["_value"] > 10)
+  |> group()
+  |> sort(columns: ["_value"], desc: true)
+```
 
 Grafana integration is planned for the future to provide more advanced and customizable dashboards.
 
