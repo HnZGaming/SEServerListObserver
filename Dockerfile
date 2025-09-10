@@ -2,8 +2,8 @@ FROM python:3.9-slim
 WORKDIR /app
 
 
-# Install cron, dos2unix, and procps (for ps command)
-RUN apt-get update && apt-get install -y cron dos2unix procps && rm -rf /var/lib/apt/lists/*
+# Install cron, dos2unix, procps (for ps command), and postgresql-client (for pg_isready, psql)
+RUN apt-get update && apt-get install -y cron dos2unix procps postgresql-client && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt

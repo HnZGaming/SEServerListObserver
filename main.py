@@ -12,6 +12,10 @@ from influxdb_client import InfluxDBClient, Point, WritePrecision
 import os
 import logging
 
+
+import psycopg2
+import psycopg2.extras
+
 # Setup logging so only logs from this file are output
 MODE = os.getenv("MODE", "prod").lower()
 ROOT_LEVEL = logging.WARNING  # Suppress logs from other modules
@@ -65,49 +69,72 @@ def on_next(info):
 def ingest_servers(now):
     logger.info(f"Ingesting {len(servers)} servers into InfluxDB...")
 
-    url = os.getenv("INFLUXDB_URL")
-    token = os.getenv("INFLUXDB_TOKEN")
-    org = os.getenv("INFLUXDB_ORG")
-    bucket = os.getenv("INFLUXDB_BUCKET")
+    # Load variables
+    influxdb_url = os.environ["INFLUXDB_URL"]
+    influxdb_token = os.environ["INFLUXDB_TOKEN"]
+    influxdb_org = os.environ["INFLUXDB_ORG"]
+    influxdb_bucket = os.environ["INFLUXDB_BUCKET"]
 
-    if not url or not token or not org or not bucket:
-        logger.critical(f"Missing required environment variables")
-        raise SystemExit(1)
+    pg_user = os.environ["POSTGRES_USER"]
+    pg_password = os.environ["POSTGRES_PASSWORD"]
+    pg_db = os.environ["POSTGRES_DB"]
+    pg_port = os.environ["POSTGRES_PORT"]
+    pg_host = os.environ["POSTGRES_HOST"]
+    
+    # Connect to PostgreSQL
+    pg_conn = psycopg2.connect(dbname=pg_db, user=pg_user, password=pg_password, host=pg_host, port=pg_port)
+    pg_conn.autocommit = True
+    pg_cur = pg_conn.cursor()
 
-    logger.info(f"ENV INFLUXDB_URL={url}")
-    logger.info(f"ENV INFLUXDB_TOKEN={token}")
-    logger.info(f"ENV INFLUXDB_ORG={org}")
-    logger.info(f"ENV INFLUXDB_BUCKET={bucket}")
+    # Prepare data for batch upsert
+    pg_values = []
+    influxdb_points = []
+    for info in servers:
+        ((ip, port), region) = info.address
+        server_name = info.server_name
+        player_count = info.player_count
+        if ip is None or port is None or player_count is None:
+            logger.warning(f"Skipping server with incomplete info: {server_name}, {ip}:{port}, {player_count}")
+            continue
 
-    with InfluxDBClient(url=url, token=token, org=org) as client:
-        write_api = client.write_api()
-        points = []
-        for info in servers:
-            ((ip, port), region) = info.address
-            server_name = info.server_name
-            #todo: ingest region and server_name to other db
-            player_count = info.player_count
-            if ip is None or port is None or player_count is None:
-                logger.warning(f"Skipping server with incomplete info: {server_name}, {ip}:{port}, {player_count}")
-                continue
+        influxdb_point = (
+            Point("player_counts")
+                .tag("ip", ip)
+                .tag("address", f"{ip}:{port}")
+                .field("player_count", int(player_count))
+                .time(now, WritePrecision.S)
+        )
+        influxdb_points.append(influxdb_point)
+        pg_values.append((ip, port, server_name, region))
 
-            point = (
-                Point("player_counts")
-                    .tag("ip", ip)
-                    .tag("address", f"{ip}:{port}")
-                    .field("player_count", int(player_count))
-                    .time(now, WritePrecision.S)
+    # Batch upsert server metadata
+    if pg_values:
+        try:
+            psycopg2.extras.execute_values(
+                pg_cur,
+                """
+                INSERT INTO servers (ip, port, name, region)
+                VALUES %s
+                ON CONFLICT (ip, port) DO UPDATE
+                SET name = EXCLUDED.name, region = EXCLUDED.region
+                """,
+                pg_values
             )
+        except Exception as e:
+            logger.error(f"PostgreSQL batch insert failed: {e}")
 
-            points.append(point)
+    # Batch write points to InfluxDB
+    if influxdb_points:
+        with InfluxDBClient(url=influxdb_url, token=influxdb_token, org=influxdb_org) as client:
+            write_api = client.write_api()
+            write_api.write(bucket=influxdb_bucket, org=influxdb_org, record=influxdb_points)
+            write_api.close()
 
-        if not points:
-            logger.warning("No points ingested")
+    # Close PostgreSQL connection
+    pg_cur.close()
+    pg_conn.close()
 
-        write_api.write(bucket=bucket, org=org, record=points)
-        write_api.close()
-
-    logger.info("Ingestion complete.")
+    logger.info(f"Ingestion complete; influxdb: {len(influxdb_points)}, postgres: {len(pg_values)}")
 
 if __name__ == "__main__":
     logger.info("Space Engineers Server Observer starting...")

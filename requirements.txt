@@ -3,3 +3,4 @@ python-valve
 python-a2s
 reactivex
 influxdb-client
+psycopg2-binary

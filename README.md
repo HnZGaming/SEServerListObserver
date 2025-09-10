@@ -62,12 +62,14 @@ from(bucket: "se-servers")
 from(bucket: "se-servers")
   |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
   |> filter(fn: (r) => r["_measurement"] == "player_counts")
+  |> group(columns: ["ip", "_time"])
+  |> sum(column: "_value")
   |> group(columns: ["ip"])
-  |> aggregateWindow(every: v.windowPeriod, fn: sum, createEmpty: false)
   |> last()
-  |> filter(fn: (r) => r["_value"] > 10)
+  |> keep(columns: ["ip", "_value"])
+  |> rename(columns: {_value: "player_count"})
   |> group()
-  |> sort(columns: ["_value"], desc: true)
+  |> sort(columns: ["player_count"], desc: true)
 ```
 
 Grafana integration is planned for the future to provide more advanced and customizable dashboards.
