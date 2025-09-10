@@ -2,3 +2,4 @@ requests
 python-valve
 python-a2s
 reactivex
+influxdb-client
