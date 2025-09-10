@@ -10,12 +10,21 @@ from reactivex import operators as ops
 from reactivex.scheduler import ThreadPoolScheduler
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 import os
+import logging
 
-s_print_lock = Lock()
-def s_print(*a, **b):
-    """Thread safe print function"""
-    with s_print_lock:
-        print(*a, **b)
+# Setup logging so only logs from this file are output
+MODE = os.getenv("MODE", "prod").lower()
+ROOT_LEVEL = logging.WARNING  # Suppress logs from other modules
+MAIN_LEVEL = logging.DEBUG if MODE != "prod" else logging.INFO
+LOG_FORMAT = "[%(levelname)s] %(asctime)s %(threadName)s %(message)s"
+LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
+
+# Set root logger to WARNING
+logging.basicConfig(level=ROOT_LEVEL, format=LOG_FORMAT, datefmt=LOG_DATEFMT)
+
+# Set a module-specific logger for this file
+logger = logging.getLogger(__name__)
+logger.setLevel(MAIN_LEVEL)
 
 # https://github.com/serverstf/python-valve
 REGIONS = ["na-east", "na-west", "na", "sa", "eu", "as", "oc", "af", "rest"]
@@ -23,15 +32,14 @@ REGIONS = ["na-east", "na-west", "na", "sa", "eu", "as", "oc", "af", "rest"]
 servers = []
 
 def list_servers(region):
-    s_print(f"[INFO] listing servers in region {region}...")
-    
+    logger.info(f"listing servers in region {region}...")
     # https://github.com/serverstf/python-valve
     try:
         with valve.source.master_server.MasterServerQuerier() as msq:
             for server in msq.find(region=region, appid='244850'):
                 yield server
     except Exception as e:
-        s_print(f"[ERROR] region {region}: {e}")
+        logger.error(f"region {region}: {e}")
         yield []
 
 def read_server(address):
@@ -41,22 +49,35 @@ def read_server(address):
         info.address = address
         return [info]
     except Exception as e:
-        s_print(f"[ERROR] {address}: {e}")
+        if 'timed out' in str(e):
+            logger.debug(f"{address}: {e}")
+        else:
+            logger.error(f"{address}: {e}")
         return []
 
 def on_next(info):
     # https://github.com/Yepoleb/python-a2s
-    s_print(f"[INFO] {info.address} - {info.server_name}, {info.player_count}/{info.max_players}")
+    logger.debug(f"{info.address} - {info.server_name}, {info.player_count}/{info.max_players}")
 
     global servers
     servers.append(info)
 
 def ingest_servers(now):
-    s_print(f"[INFO] Ingesting {len(servers)} servers into InfluxDB...")
-    url = os.getenv("INFLUXDB_URL", "http://localhost:8086")
-    token = os.getenv("INFLUXDB_TOKEN", "se-observer-token")
-    org = os.getenv("INFLUXDB_ORG", "se-observer")
-    bucket = os.getenv("INFLUXDB_BUCKET", "se-servers")
+    logger.info(f"Ingesting {len(servers)} servers into InfluxDB...")
+
+    url = os.getenv("INFLUXDB_URL")
+    token = os.getenv("INFLUXDB_TOKEN")
+    org = os.getenv("INFLUXDB_ORG")
+    bucket = os.getenv("INFLUXDB_BUCKET")
+
+    if not url or not token or not org or not bucket:
+        logger.critical(f"Missing required environment variables")
+        raise SystemExit(1)
+
+    logger.info(f"ENV INFLUXDB_URL={url}")
+    logger.info(f"ENV INFLUXDB_TOKEN={token}")
+    logger.info(f"ENV INFLUXDB_ORG={org}")
+    logger.info(f"ENV INFLUXDB_BUCKET={bucket}")
 
     with InfluxDBClient(url=url, token=token, org=org) as client:
         write_api = client.write_api()
@@ -66,7 +87,7 @@ def ingest_servers(now):
             port = info.address[1]
             player_count = info.player_count
             if ip is None or port is None or player_count is None:
-                s_print(f"[WARN] Skipping server with incomplete info: {info.server_name}, {ip}:{port}, {player_count}")
+                logger.warning(f"Skipping server with incomplete info: {info.server_name}, {ip}:{port}, {player_count}")
                 continue
 
             point = (
@@ -80,25 +101,29 @@ def ingest_servers(now):
             points.append(point)
 
         if not points:
-            s_print(f"[WARN] No points ingested")
+            logger.warning("No points ingested")
 
         write_api.write(bucket=bucket, org=org, record=points)
         write_api.close()
 
-    s_print(f"[INFO] Ingestion complete.")
+    logger.info("Ingestion complete.")
 
 if __name__ == "__main__":
-    s_print("Space Engineers Server Observer starting...")
+    logger.info("Space Engineers Server Observer starting...")
 
     start_time = time.perf_counter()
     pool = ThreadPoolScheduler(multiprocessing.cpu_count() * 50)
     done_event = threading.Event()
 
     def on_completed(e):
-        elapsed = time.perf_counter() - start_time
-        tag = "ERROR" if e else "INFO"
-        s_print(f"[{tag}] Discovery complete; elapsed: {elapsed:.2f} seconds; error: {e}")
         done_event.set()
+
+        if e:
+            logger.error(f"Discovery error; error: {e}")
+            return
+
+        elapsed = time.perf_counter() - start_time
+        logger.info(f"Discovery complete; elapsed: {elapsed:.2f} seconds")
 
     rx.from_(REGIONS).pipe(
         ops.flat_map(lambda r: rx.from_callable(lambda: list_servers(r), scheduler=pool)),
@@ -113,4 +138,4 @@ if __name__ == "__main__":
 
     done_event.wait()
     ingest_servers(int(time.time()))
-    s_print(f"[INFO] All done")
+    logger.info("All done")

@@ -1,0 +1,2 @@
+# Run every 5 minutes
+*/5 * * * * . /env.sh; /usr/local/bin/python /app/main.py >> /var/log/cron.log 2>&1
