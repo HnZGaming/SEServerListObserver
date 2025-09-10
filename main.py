@@ -51,6 +51,10 @@ def read_server(address):
         # https://github.com/Yepoleb/python-a2s
         info = a2s.info(address[0])
         info.address = address
+
+        # get the real steam user count
+        players = a2s.players(address[0])
+        info.player_count = len(players)
         return [info]
     except Exception as e:
         if 'timed out' in str(e):
