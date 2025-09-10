@@ -1,0 +1,15 @@
+{
+    "sqltools.connections": [
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5433,
+            "driver": "PostgreSQL",
+            "name": "seserverobserver",
+            "database": "se_metadata",
+            "username": "postgres",
+            "password": "password"
+        }
+    ]
+}

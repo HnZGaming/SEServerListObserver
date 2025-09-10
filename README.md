@@ -1,23 +1,25 @@
 
 # Space Engineers Server List Observer
 
-This project monitors the player population of all public Space Engineers community servers and periodically writes player counts to an InfluxDB database. It is designed to run via Docker Compose, supports scheduled polling via cron, and is ready for future expansion (e.g., Grafana integration for visualization).
+
+This project monitors the player population of all public Space Engineers community servers and periodically writes player counts to an InfluxDB database. It is designed to run via Docker Compose, supports scheduled polling via cron, and includes integrated Grafana dashboards for data visualization.
 
 This tool allows you to observe the player count of each host, not limited to each host:port. This is important when you want to know the true population of a Nexus-enabled SE community as opposed to a single server instance.
+
 
 ## Features
 - Polls all public Space Engineers servers using the Steam master server API
 - Collects player counts per host:ip and also per host
 - Stores results in InfluxDB (configurable via environment variables)
-- Runs easily with Docker Compose (Python + InfluxDB)
+- Runs easily with Docker Compose (Python + InfluxDB + Grafana)
 - Thread-safe, parallelized polling for fast data collection
 - Supports scheduled polling via cron (default: every 5 minutes)
+- Integrated Grafana dashboards for data visualization (sample dashboard included)
 
 ## Getting Started
 
 ### Prerequisites
 - [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/)
-
 
 ### Quick Start
 1. Clone this repository.
@@ -41,57 +43,37 @@ This tool allows you to observe the player count of each host, not limited to ea
 ### InfluxDB
 InfluxDB is started automatically via Docker Compose. Credentials and setup are controlled by environment variables in `docker-compose.yml` and `.env`.
 
+
 ### Data Visualization
-You can visualize the collected data directly using the InfluxDB web interface, which is available at `http://localhost:8086` by default. InfluxDB provides built-in dashboards and data exploration tools.
+Grafana is integrated for advanced and customizable dashboards. A sample dashboard is included and automatically provisioned via the files in `grafana/provisioning/`. Access Grafana at `http://localhost:3001` (default credentials: `admin`/`admin`).
 
-- See the official InfluxDB documentation for dashboard and visualization setup: [InfluxDB Dashboards Documentation](https://docs.influxdata.com/influxdb/latest/visualize-data/dashboards/)
+See the included sample dashboard (`grafana/provisioning/dashboards/player_counts.json`) for a quick start.
 
-- Flux query to visualize the timeline of online players in all SE communities
-```
-from(bucket: "se-servers")
-  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
-  |> filter(fn: (r) => r["_measurement"] == "player_counts")
-  |> group(columns: ["ip", "_time"])
-  |> sum(column: "_value")
-  |> group(columns: ["ip"])
-  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)
-```
-
-- Flux query to create a table (note: not a graph) of the most populated SE communities
-```
-from(bucket: "se-servers")
-  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)
-  |> filter(fn: (r) => r["_measurement"] == "player_counts")
-  |> group(columns: ["ip", "_time"])
-  |> sum(column: "_value")
-  |> group(columns: ["ip"])
-  |> last()
-  |> keep(columns: ["ip", "_value"])
-  |> rename(columns: {_value: "player_count"})
-  |> group()
-  |> sort(columns: ["player_count"], desc: true)
-```
-
-Grafana integration is planned for the future to provide more advanced and customizable dashboards.
 
 ## Project Structure
 - `main.py` — Main polling and ingestion script
 - `requirements.txt` — Python dependencies
-- `docker-compose.yml` — Multi-container orchestration (Observer + InfluxDB)
+- `docker-compose.yml` — Multi-container orchestration (Observer + InfluxDB + Grafana)
 - `Dockerfile` — Container build for the observer
 - `entrypoint.sh` — Entrypoint script for container (handles dev/prod mode and cron)
 - `crontab` — Cron schedule (default: every 5 minutes)
 - `.env` — Environment variables for configuration
+- `grafana/provisioning/` — Provisioned Grafana dashboards and datasources (sample dashboard included)
+- `postgres_schema.sql` — Example schema for optional PostgreSQL support
+- `init_postgres.sh` — Initialization script for optional PostgreSQL support
+
 
 ## How it Works
 1. The observer queries the Steam master server for all Space Engineers servers in all regions.
 2. Each server is queried for player count and info in parallel (using reactivex and thread pool).
 3. Results are written to InfluxDB as time series data.
 4. In production mode, polling is triggered by cron every 5 minutes; in development mode, it runs once per container start.
+5. Data is visualized in Grafana using the included sample dashboard.
+
 
 ## Customization
 - Polling interval is controlled by the `crontab` file (default: every 5 minutes). You can edit this file to change the schedule.
-- InfluxDB and observer settings can be changed via environment variables in `.env`.
+- InfluxDB, Grafana, and observer settings can be changed via environment variables in `.env`.
 
 ## License
 MIT License
