@@ -1,0 +1,3 @@
+requests
+python-valve
+python-a2s
