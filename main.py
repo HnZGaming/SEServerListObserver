@@ -16,7 +16,7 @@ import logging
 MODE = os.getenv("MODE", "prod").lower()
 ROOT_LEVEL = logging.WARNING  # Suppress logs from other modules
 MAIN_LEVEL = logging.DEBUG if MODE != "prod" else logging.INFO
-LOG_FORMAT = "[%(levelname)s] %(asctime)s %(threadName)s %(message)s"
+LOG_FORMAT = "[%(levelname)s] %(asctime)s %(message)s"
 LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 # Set root logger to WARNING
@@ -83,9 +83,7 @@ def ingest_servers(now):
         write_api = client.write_api()
         points = []
         for info in servers:
-            ip = info.address[0][0]
-            port = info.address[0][1]
-            region = info.address[1]
+            ((ip, port), region) = info.address
             server_name = info.server_name
             #todo: ingest region and server_name to other db
             player_count = info.player_count
