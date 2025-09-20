@@ -93,6 +93,7 @@ def ingest_servers(now):
     # Prepare data for batch upsert
     pg_values = []
     influxdb_points = []
+    total_player_count = 0
     for info in servers:
         ((ip, port), region) = info.address
         server_name = info.server_name
@@ -101,15 +102,25 @@ def ingest_servers(now):
             logger.warning(f"Skipping server with incomplete info: {server_name}, {ip}:{port}, {player_count}")
             continue
 
+        player_count = int(player_count)
+
         influxdb_point = (
             Point("player_counts")
                 .tag("ip", ip)
                 .tag("address", f"{ip}:{port}")
-                .field("player_count", int(player_count))
+                .field("player_count", player_count)
                 .time(now, WritePrecision.S)
         )
+
+        total_player_count += player_count
         influxdb_points.append(influxdb_point)
         pg_values.append((ip, port, server_name, region))
+
+    influxdb_points.append(
+        Point("player_count_total")
+            .field("player_count", total_player_count)
+            .time(now, WritePrecision.S)
+    )
 
     # Batch upsert server metadata
     if pg_values:
@@ -132,13 +143,12 @@ def ingest_servers(now):
         with InfluxDBClient(url=influxdb_url, token=influxdb_token, org=influxdb_org) as client:
             write_api = client.write_api()
             write_api.write(bucket=influxdb_bucket, org=influxdb_org, record=influxdb_points)
-            write_api.close()
 
     # Close PostgreSQL connection
     pg_cur.close()
     pg_conn.close()
 
-    logger.info(f"Ingestion complete; influxdb: {len(influxdb_points)}, postgres: {len(pg_values)}")
+    logger.info(f"Ingestion complete; influxdb: {len(influxdb_points)}, postgres: {len(pg_values)}, total players: {total_player_count}")
 
 if __name__ == "__main__":
     logger.info("Space Engineers Server Observer starting...")
