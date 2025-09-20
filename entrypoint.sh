@@ -14,6 +14,7 @@ dos2unix /app/postgres_schema.sql || true
 PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /app/postgres_schema.sql
 
 echo "Postgres schema migration complete."
+echo "MODE: $MODE"
 
 # dev mode
 if [ "$MODE" != "prod" ] && [ -n "$MODE" ]; then
