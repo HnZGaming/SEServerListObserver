@@ -117,8 +117,8 @@ def ingest_servers(now):
         pg_values.append((ip, port, server_name, region))
 
     influxdb_points.append(
-        Point("player_count_total")
-            .field("player_count", total_player_count)
+        Point("total_player_count")
+            .field("total_player_count", total_player_count)
             .time(now, WritePrecision.S)
     )
 
@@ -143,6 +143,7 @@ def ingest_servers(now):
         with InfluxDBClient(url=influxdb_url, token=influxdb_token, org=influxdb_org) as client:
             write_api = client.write_api()
             write_api.write(bucket=influxdb_bucket, org=influxdb_org, record=influxdb_points)
+            write_api.close()
 
     # Close PostgreSQL connection
     pg_cur.close()
